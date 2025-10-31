@@ -12,7 +12,7 @@ namespace Sandbox.Worlds;
 /// </summary>
 /// <param name="Position">
 /// Position index of the cell in its detail level.
-/// Neighbouring cells will differ by <c>±1</c> in one axis.
+/// Neighbouring cells will differ by +/-1 in one axis.
 /// For 2D worlds, the <c>z</c> component will always be <c>0</c>.
 /// </param>
 /// <param name="Level">Detail level of the cell. Level <c>0</c> is the highest.</param>
@@ -54,6 +54,8 @@ public sealed class StreamingWorld : Component, Component.ExecuteInEditor
 
 	private readonly HashSet<CellIndex> _cellsToLoad = new();
 	private readonly HashSet<CellIndex> _cellsToUnload = new();
+
+	private readonly Dictionary<GameObject, CellIndex> _trackedObjects = new();
 
 	private int _levelCount = 1;
 	private bool _is2d = true;
@@ -132,6 +134,55 @@ public sealed class StreamingWorld : Component, Component.ExecuteInEditor
 		UpdateLevelCount();
 	}
 
+	public void RegisterTrackedObject( GameObject go, CellIndex cellIndex )
+	{
+		if ( _trackedObjects.ContainsKey( go ) ) return;
+		if ( !TryGetCell( cellIndex, out var cell ) ) return;
+
+		_trackedObjects[go] = cellIndex;
+		cell.GameObjects.Add( go );
+	}
+
+	public void UnregisterTrackedObject( GameObject go )
+	{
+		if ( !_trackedObjects.Remove( go, out var cellIndex ) ) return;
+		if ( TryGetCell( cellIndex, out var cell ) )
+		{
+			cell.GameObjects.Remove( go );
+		}
+	}
+
+	internal void UpdateGameObjectCell( GameObject go, CellIndex oldIndex, CellIndex newIndex )
+	{
+		if ( !_trackedObjects.ContainsKey( go ) ) return;
+
+		// De-register from old cell
+		if ( TryGetCell( oldIndex, out var oldCell ) )
+		{
+			oldCell.GameObjects.Remove( go );
+		}
+
+		// Register with new cell
+		if ( TryGetCell( newIndex, out var newCell ) )
+		{
+			newCell.GameObjects.Add( go );
+			_trackedObjects[go] = newIndex;
+		}
+		else
+		{
+			// The object has moved into a cell that isn't loaded.
+			// We can either unload the object or mark it for re-registration later.
+			// For now, we'll just remove it from tracking and destroy it.
+			_trackedObjects.Remove( go );
+			go.Destroy();
+		}
+	}
+
+	public bool TryGetCellForObject( GameObject go, out CellIndex cellIndex )
+	{
+		return _trackedObjects.TryGetValue( go, out cellIndex );
+	}
+
 	/// <summary>
 	/// Immediately unloads all cells in this world.
 	/// </summary>
@@ -167,6 +218,27 @@ public sealed class StreamingWorld : Component, Component.ExecuteInEditor
 	protected override void OnUpdate()
 	{
 		UpdateCells();
+		UpdateTrackedObjectCells();
+	}
+
+	private void UpdateTrackedObjectCells()
+	{
+		if ( IsProxy ) return;
+
+		foreach ( var (go, cellIndex) in _trackedObjects )
+		{
+			if ( !go.IsValid() )
+			{
+				// Should we remove it from the list? It will be removed on the next UnloadCell
+				continue;
+			}
+
+			var newCellIndex = GetCellIndex( go.WorldPosition, cellIndex.Level );
+			if ( newCellIndex != cellIndex )
+			{
+				UpdateGameObjectCell( go, cellIndex, newCellIndex );
+			}
+		}
 	}
 
 	private bool _anyLoadOrigins;
@@ -396,6 +468,12 @@ public sealed class StreamingWorld : Component, Component.ExecuteInEditor
 	{
 		if ( cellIndex.Level < 0 || cellIndex.Level >= _levels.Count ) return;
 		if ( !_levels[cellIndex.Level].Cells.Remove( cellIndex.Position, out var cell ) ) return;
+
+		// Unregister and destroy tracked objects that belong to this cell
+		foreach ( var go in cell.GameObjects.ToArray() )
+		{
+			_trackedObjects.Remove( go );
+		}
 
 		foreach ( var cellLoader in Scene.GetAllComponents<ICellLoader>().Reverse() )
 		{

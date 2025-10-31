@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using Sandbox.Diagnostics;
 
 namespace Sandbox.Worlds;
@@ -99,7 +100,12 @@ public sealed class WorldCell : Component, Component.ExecuteInEditor
 	}
 
 	/// <summary>
-	/// Event dispatched when this cell changes <see cref="Opacity"/>.
+	/// GameObjects that are part of this cell.
+	/// </summary>
+	public HashSet<GameObject> GameObjects { get; } = new();
+
+	/// <summary>
+	/// Called when this cell's <see cref="Opacity"/> has changed.
 	/// </summary>
 	public event WorldCellOpacityChanged? OpacityChanged;
 
