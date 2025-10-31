@@ -121,6 +121,9 @@ public sealed class StreamingWorld : Component, Component.ExecuteInEditor
 		}
 	}
 
+	[Property]
+	public bool EnableStreaming { get; set; } = true;
+
 	internal Transform? EditorCameraTransform { get; private set; }
 
 	public StreamingWorld()
@@ -421,7 +424,7 @@ public sealed class StreamingWorld : Component, Component.ExecuteInEditor
 
 		if ( !Gizmo.IsSelected ) return;
 
-		Gizmo.Draw.IgnoreDepth = true;
+		Gizmo.Draw.IgnoreDepth = false;
 
 		var levelCount = DetailLevels;
 
@@ -501,14 +504,17 @@ public sealed class StreamingWorld : Component, Component.ExecuteInEditor
 			}
 		}
 
-		foreach ( var cellIndex in _cellsToUnload )
+		if ( EnableStreaming )
 		{
-			UnloadCell( cellIndex );
-		}
+			foreach ( var cellIndex in _cellsToUnload )
+			{
+				UnloadCell( cellIndex );
+			}
 
-		foreach ( var cellIndex in _cellsToLoad )
-		{
-			LoadCell( cellIndex );
+			foreach ( var cellIndex in _cellsToLoad )
+			{
+				LoadCell( cellIndex );
+			}
 		}
 
 		foreach ( var level in _levels )
